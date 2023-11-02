@@ -4,6 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "pgcronner"
+description = "Fast pgcron manager written in Rust"
 requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Rust",
