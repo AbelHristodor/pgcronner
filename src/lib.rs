@@ -1,3 +1,6 @@
+use crate::utils::{
+    create_stored_procedure, create_table, delete_all_jobs, get_stored_procedure_name, schedule_job,
+};
 use log::{info, warn};
 use postgres::{Client, NoTls};
 use pyo3::exceptions::PyValueError;
@@ -5,6 +8,9 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::FromPyObject;
 use std::fmt;
+use std::ops::Not;
+
+mod utils;
 
 #[derive(Debug, Clone)]
 #[pyclass]
@@ -21,6 +27,10 @@ pub struct JobBuilder {
 
 #[pymethods]
 impl JobBuilder {
+    // TODO: Add docstrings, add validation
+    // TODO: Add __repr__, __str__, __eq__, __hash__, __dict__, __iter__
+    // TODO: Add tests
+
     #[new]
     fn new(name: String, schedule: String, command: String, source: String) -> Self {
         JobBuilder {
@@ -28,6 +38,15 @@ impl JobBuilder {
             schedule,
             command,
             source,
+        }
+    }
+
+    fn build(&self) -> Job {
+        Job {
+            name: self.name.clone(),
+            schedule: self.schedule.clone(),
+            command: self.command.clone(),
+            source: self.source.clone(),
         }
     }
 }
@@ -86,6 +105,10 @@ struct PgCronner {
 
 #[pymethods]
 impl PgCronner {
+    // TODO: Add docstrings, add validation
+    // TODO: Add __repr__, __str__, __eq__, __hash__, __dict__, __iter__
+    // TODO: Add tests
+
     #[setter]
     fn set_db_uri(&mut self, db_uri: String) -> PyResult<()> {
         self.db_uri = db_uri;
@@ -98,11 +121,7 @@ impl PgCronner {
     }
 
     #[new]
-    fn new(
-        jobs_map: Option<&PyDict>,
-        db_uri: Option<String>,
-        table_name: Option<String>,
-    ) -> PyResult<Self> {
+    fn new(db_uri: Option<String>, table_name: Option<String>) -> PyResult<Self> {
         let uri: String =
             match db_uri {
                 Some(uri) => uri,
@@ -117,45 +136,11 @@ impl PgCronner {
                 }
             };
 
-        info!("DB Uri: {}", uri);
         let mut client =
             get_db_connection(&uri).or(Err(PyValueError::new_err("Could not connect to DB!")))?;
 
-        let table_name: String = match table_name {
-            Some(name) => name,
-            _ => String::from("pgcronner_cronjobs"),
-        };
-        let table = format!(
-            "
-        CREATE IF NOT EXISTS TABLE {table_name} 
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        command TEXT NOT NULL,
-        schedule VARCHAR(255) NOT NULL,
-        source TEXT,
-        created TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-        "
-        );
-
-        client
-            .query(&table, &[])
-            .map_err(|err| PyValueError::new_err(format!("Could not create init table: {err}")))?;
-
-        // Get all jobs from the HashMap
-        jobs_map
-            .ok_or(PyValueError::new_err("Job map is mandatory!"))?
-            .iter()
-            .for_each(|(key, value)| {
-                // Convert value to Job
-                let job = value
-                    .extract::<Job>()
-                    .or(Err(PyValueError::new_err("Could not parse job!")))
-                    .unwrap();
-                info!("Name: {}, Job: {}", key, job);
-            });
-
-        // Check DB for jobs
-        // Sync
+        let table_name = create_table(&mut client, &table_name.unwrap_or("".to_string()))
+            .map_err(|e| PyValueError::new_err(format!("Could not create table: {}", e)))?;
 
         Ok(PgCronner {
             db_uri: uri,
@@ -204,35 +189,48 @@ impl PgCronner {
         }
     }
 
-    fn add(&mut self, job: JobBuilder) -> PyResult<i64> {
-        let row = self
+    fn add(&mut self, job: JobBuilder) -> PyResult<bool> {
+        let id: i32 = self
             .client
             .query_one(
                 &format!("INSERT INTO {} (name, schedule, command, source) VALUES ($1, $2, $3, $4) RETURNING id", self.table_name),
                 &[&job.name, &job.schedule, &job.command, &job.source],
             )
-            .map_err(|e| PyValueError::new_err(format!("Could not add job to DB: {}", e)))?;
+            .map_err(|e| PyValueError::new_err(format!("Could not add job to DB: {}", e)))?.get(0);
 
-        // TODO: Schedule cron
-
-        Ok(row.get(0))
+        Ok(id > 0)
     }
 
     fn remove(&mut self, jobname: String) -> PyResult<bool> {
-        let row = self
+        let id: i32 = self
             .client
             .query_one(
-                &format!("DELETE FROM {} WHERE name=$1", self.table_name),
+                &format!("DELETE FROM {} WHERE name=$1 RETURNING id", self.table_name),
                 &[&jobname],
             )
-            .map_err(|e| PyValueError::new_err(format!("Could not remove job from DB: {}", e)))?;
+            .map_err(|e| PyValueError::new_err(format!("Could not remove job from DB: {}", e)))?
+            .get(0);
 
-        //TODO: Unschedule cron
-
-        Ok(row.get(0))
+        Ok(id > 0)
     }
 
-    fn sync(&mut self, _py: Python) -> PyResult<u32> {
+    fn clear(&mut self) -> PyResult<bool> {
+        self.client
+            .query(&format!("DELETE FROM {}", self.table_name), &[])
+            .map_err(|e| PyValueError::new_err(format!("Could not clear jobs from DB: {}", e)))?;
+
+        self.client
+            .query("DELETE FROM cron.job", &[])
+            .map_err(|e| {
+                PyValueError::new_err(format!("Could not clear jobs from cron.job: {}", e))
+            })?;
+
+        // TODO: Find a way to delete stored procedures too
+
+        Ok(true)
+    }
+
+    fn sync(&mut self, _py: Python) -> PyResult<bool> {
         let jobs: Vec<Job> = self
             .client
             .query(&format!("SELECT * FROM {}", self.table_name), &[])
@@ -249,49 +247,30 @@ impl PgCronner {
             })
             .collect::<Vec<Job>>();
 
+        info!("Dumping all jobs and replacing with jobs in DB");
+        delete_all_jobs(&mut self.client).map_err(|e| {
+            PyValueError::new_err(format!("Could not delete all jobs from table: {}", e))
+        })?;
+
         // Schedule cronjobs
         jobs.into_iter().for_each(|job| {
-            if job.command.contains("CALL") && !job.source.is_empty() {
-                info!(
-                    "Job has command that calls a function (stored procedure), source not empty."
-                );
-                info!("Updating or creating stored procedure for job: {}", job);
+            job.source.is_empty().not().then(|| {
+                info!("Job calls stored procedure and source is not empty.");
 
-                let fname = &job
-                    .command
-                    .split_whitespace()
-                    .nth(1)
-                    .unwrap_or(job.name.as_str());
-
-                self.client
-                    .query(
-                        &format!(
-                            "CREATE OR REPLACE PROCEDURE {} AS $$ BEGIN {} END; $$ LANGUAGE plpgsql",
-                            fname, job.source
-                        ),
-                        &[],
-                    )
+                let name: String = get_stored_procedure_name(&job.command, &job.name).unwrap();
+                create_stored_procedure(&mut self.client, &name, &job.source)
                     .map_err(|e| {
                         PyValueError::new_err(format!("Could not create stored procedure: {}", e))
                     })
                     .unwrap();
-            }
+            });
 
-            info!("Scheduling job: {}", job);
-
-            self.client
-                .query(
-                    &format!(
-                        "SELECT cron.schedule('{}', '{}', '{}')",
-                        job.name, job.schedule, job.command,
-                    ),
-                    &[],
-                )
+            schedule_job(&mut self.client, &job)
                 .map_err(|e| PyValueError::new_err(format!("Could not schedule job: {}", e)))
                 .unwrap();
         });
 
-        Ok(10)
+        Ok(true)
     }
 }
 
