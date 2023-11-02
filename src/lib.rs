@@ -1,3 +1,4 @@
+use crate::job::{Job, JobBuilder};
 use crate::utils::{
     create_stored_procedure, create_table, delete_all_jobs, get_stored_procedure_name, schedule_job,
 };
@@ -5,81 +6,10 @@ use log::{info, warn};
 use postgres::{Client, NoTls};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
-use pyo3::FromPyObject;
-use std::fmt;
 use std::ops::Not;
 
+mod job;
 mod utils;
-
-#[derive(Debug, Clone)]
-#[pyclass]
-pub struct JobBuilder {
-    #[pyo3(get, set)]
-    name: String,
-    #[pyo3(get, set)]
-    schedule: String,
-    #[pyo3(get, set)]
-    command: String,
-    #[pyo3(get, set)]
-    source: String,
-}
-
-#[pymethods]
-impl JobBuilder {
-    // TODO: Add docstrings, add validation
-    // TODO: Add __repr__, __str__, __eq__, __hash__, __dict__, __iter__
-    // TODO: Add tests
-
-    #[new]
-    fn new(name: String, schedule: String, command: String, source: String) -> Self {
-        JobBuilder {
-            name,
-            schedule,
-            command,
-            source,
-        }
-    }
-
-    fn build(&self) -> Job {
-        Job {
-            name: self.name.clone(),
-            schedule: self.schedule.clone(),
-            command: self.command.clone(),
-            source: self.source.clone(),
-        }
-    }
-}
-
-#[derive(Debug, FromPyObject, Clone)]
-#[pyo3(from_item_all)]
-pub struct Job {
-    pub name: String,     // Name of the job
-    pub schedule: String, // cron schedule
-    pub command: String,  // E.g. CALL my_command()
-    pub source: String,   // SQL source
-}
-
-impl fmt::Display for Job {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Job ({}, {}, {}, {})",
-            self.name, self.schedule, self.command, self.source
-        )
-    }
-}
-
-impl IntoPy<PyObject> for Job {
-    fn into_py(self, py: Python<'_>) -> PyObject {
-        let job_dict = PyDict::new(py);
-        job_dict.set_item("name", self.name).unwrap();
-        job_dict.set_item("schedule", self.schedule).unwrap();
-        job_dict.set_item("command", self.command).unwrap();
-        job_dict.set_item("source", self.source).unwrap();
-        job_dict.into()
-    }
-}
 
 fn get_db_connection(uri: &String) -> anyhow::Result<Client> {
     let client = Client::connect(uri, NoTls)?;

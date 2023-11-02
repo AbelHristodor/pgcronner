@@ -1,4 +1,4 @@
-use crate::Job;
+use crate::job::Job;
 use log::info;
 use postgres::Client;
 use pyo3::exceptions::PyValueError;

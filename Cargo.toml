@@ -9,10 +9,6 @@ name = "pgcronner"
 path = "src/lib.rs"
 crate-type = ["cdylib"]
 
-[[bin]]
-name = "main"
-path= "src/main.rs"
-
 [dependencies]
 anyhow = "1.0.75"
 log = "0.4.20"
