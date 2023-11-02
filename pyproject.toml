@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "pgcronner"
 description = "Fast pgcron manager written in Rust"
-license = "MIT"
+license = {file = "LICENSE"}
 authors = [
     {name = "Abel Hristodor", email = "habelor@gmail.com"},
 ]
@@ -16,6 +16,9 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dynamic = ["version"]
+
+[project.urls]
+"Homepage" = "https://github.com/AbelHristodor/pgcronner"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
