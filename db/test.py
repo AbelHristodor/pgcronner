@@ -19,10 +19,10 @@ db_uri = "postgresql://postgres:postgres@localhost:5432/postgres"
 
 r = PgCronner(a, db_uri)
 print(r.all())
-print(r.one("testjob"))
 
 job = JobBuilder("testjob", "*/5 * * * *", "SELECT 1;", "source")
 print(r.add(job))
+print(r.one("testjob"))
 print(r.remove("testjob"))
 
 print(r.all())
