@@ -14,7 +14,7 @@ r = PgCronner(db_uri)
 logger.info(f"Retrieving all cronjobs from DB: {r.all()}")
 
 job = JobBuilder("testjob", "*/5 * * * *", "SELECT 1;", "source")
-logger.info(f"Built job: {job}")
+logger.info(f"Built job: {job.build()}")
 try:
     logger.info(f"Adding job: {r.add(job)}")
 except ValueError as e:
@@ -32,6 +32,6 @@ logger.info(r.sync())
 
 logger.info(r.all())
 
-# logger.info("Cleaning up...")
-# logger.info("Cleaning result: {}".format(r.clear()))
+logger.info("Cleaning up...")
+logger.info("Cleaning result: {}".format(r.clear()))
 

@@ -1,6 +1,4 @@
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
-use pyo3::FromPyObject;
 use std::fmt;
 
 #[derive(Debug, Clone)]
@@ -42,13 +40,26 @@ impl JobBuilder {
     }
 }
 
-#[derive(Debug, FromPyObject, Clone)]
-#[pyo3(from_item_all)]
+#[derive(Debug, Clone)]
+#[pyclass]
 pub struct Job {
     pub name: String,     // Name of the job
     pub schedule: String, // cron schedule
     pub command: String,  // E.g. CALL my_command()
     pub source: String,   // SQL source
+}
+
+#[pymethods]
+impl Job {
+    #[new]
+    fn new(name: String, schedule: String, command: String, source: String) -> Self {
+        Job {
+            name,
+            schedule,
+            command,
+            source,
+        }
+    }
 }
 
 impl fmt::Display for Job {
@@ -58,16 +69,5 @@ impl fmt::Display for Job {
             "Job ({}, {}, {}, {})",
             self.name, self.schedule, self.command, self.source
         )
-    }
-}
-
-impl IntoPy<PyObject> for Job {
-    fn into_py(self, py: Python<'_>) -> PyObject {
-        let job_dict = PyDict::new(py);
-        job_dict.set_item("name", self.name).unwrap();
-        job_dict.set_item("schedule", self.schedule).unwrap();
-        job_dict.set_item("command", self.command).unwrap();
-        job_dict.set_item("source", self.source).unwrap();
-        job_dict.into()
     }
 }

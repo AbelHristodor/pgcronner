@@ -2,25 +2,32 @@ use crate::job::Job;
 use log::info;
 use postgres::Client;
 use pyo3::exceptions::PyValueError;
+use regex::Regex;
 
-pub fn get_stored_procedure_name(command: &str, default: &str) -> anyhow::Result<String> {
-    command
-        .contains("CALL")
-        .then(|| {
-            command
-                .split_whitespace()
-                .nth(1)
-                .unwrap_or(default)
-                .to_string()
-        })
-        .ok_or(anyhow::anyhow!("Could not get stored procedure name!"))
+pub fn get_stored_procedure_name(command: &str, default: &str) -> String {
+    // If string contains CALL, then it's a stored procedure
+    // We need to extract the name of the stored procedure
+    // Example: CALL my_stored_procedure() -> my_stored_procedure
+
+    let re = Regex::new(r"CALL\s+(\w+)\(\)").unwrap();
+
+    command.contains("CALL").then(|| {
+        if let Some(caps) = re.captures(command) {
+            if let Some(name) = caps.get(1) {
+                return Ok::<String, anyhow::Error>(name.as_str().to_string());
+            }
+        }
+        Ok(default.to_string())
+    });
+
+    default.to_string()
 }
 
 pub fn create_stored_procedure(
     client: &mut Client,
     name: &str,
     source: &str,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<()> {
     client
         .query(
             &format!(
@@ -30,7 +37,7 @@ pub fn create_stored_procedure(
             &[],
         )
         .map_err(|e| PyValueError::new_err(format!("Could not create stored procedure: {}", e)))?;
-    Ok(true)
+    Ok(())
 }
 
 pub fn schedule_job(client: &mut Client, job: &Job) -> anyhow::Result<()> {
@@ -48,6 +55,7 @@ pub fn schedule_job(client: &mut Client, job: &Job) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn unschedule_job(client: &mut Client, name: &str) -> anyhow::Result<()> {
     client
         .query_one(&format!("SELECT cron.unschedule('{}')", name), &[])

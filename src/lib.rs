@@ -1,4 +1,8 @@
-use crate::job::{Job, JobBuilder};
+//! # pgcronner
+//!
+//! `pgcronner` is a Python library that allows you to schedule jobs in PostgreSQL using the `cron` extension.
+
+use crate::job::Job;
 use crate::utils::{
     create_stored_procedure, create_table, delete_all_jobs, get_stored_procedure_name, schedule_job,
 };
@@ -10,6 +14,9 @@ use std::ops::Not;
 
 mod job;
 mod utils;
+
+// TODO: Add active flag to jobs
+// TODO: Add last run
 
 fn get_db_connection(uri: &String) -> anyhow::Result<Client> {
     let client = Client::connect(uri, NoTls)?;
@@ -35,8 +42,7 @@ struct PgCronner {
 
 #[pymethods]
 impl PgCronner {
-    // TODO: Add docstrings, add validation
-    // TODO: Add __repr__, __str__, __eq__, __hash__, __dict__, __iter__
+    // TODO: add validation
     // TODO: Add tests
 
     #[setter]
@@ -50,7 +56,21 @@ impl PgCronner {
         Ok(self.db_uri.clone())
     }
 
+    /// Create a new PgCronner instance
+    ///
+    /// # Arguments
+    /// * `db_uri` - The database uri to connect to (optional) (default: DATABASE_URL env variable)
+    /// * `table_name` - The name of the table to use (optional) (default: pgcronner)
+    ///
+    /// # Example
+    /// ```
+    /// import pgcronner
+    ///
+    /// pgcronner = pgcronner.PgCronner()
+    ///```
+    ///
     #[new]
+    #[pyo3(text_signature = "(db_uri=None, table_name=None)")]
     fn new(db_uri: Option<String>, table_name: Option<String>) -> PyResult<Self> {
         let uri: String =
             match db_uri {
@@ -82,6 +102,19 @@ impl PgCronner {
 
 #[pymethods]
 impl PgCronner {
+    /// Get all jobs
+    ///
+    /// # Example
+    /// ```
+    /// import pgcronner
+    ///
+    /// pgcronner = pgcronner.PgCronner()
+    /// jobs = pgcronner.all()
+    /// ```
+    ///
+    /// # Returns
+    /// A list of jobs
+    #[pyo3(text_signature = "($self)")]
     fn all(&mut self, _py: Python) -> PyResult<Vec<Py<PyAny>>> {
         let rows = self
             .client
@@ -99,6 +132,22 @@ impl PgCronner {
         Ok(jobs)
     }
 
+    /// Get a job by name
+    ///
+    /// # Arguments
+    /// * `jobname` - The name of the job to get
+    ///
+    /// # Example
+    /// ```
+    /// import pgcronner
+    ///
+    /// pgcronner = pgcronner.PgCronner()
+    /// job = pgcronner.one("myjob")
+    /// ```
+    ///
+    /// # Returns
+    /// A job
+    #[pyo3(text_signature = "($self, jobname)")]
     fn one(&mut self, jobname: String, _py: Python) -> PyResult<Py<PyAny>> {
         let rows = self
             .client
@@ -119,7 +168,25 @@ impl PgCronner {
         }
     }
 
-    fn add(&mut self, job: JobBuilder) -> PyResult<bool> {
+    /// Add a job
+    ///
+    /// # Arguments
+    /// * `job` - The job to add
+    ///
+    /// # Example
+    /// ```
+    /// import pgcronner
+    ///
+    /// pgcronner = pgcronner.PgCronner()
+    ///
+    /// job = pgcronner.Job("myjob", "0 0 * * *", "SELECT * FROM mytable")
+    /// pgcronner.add(job)
+    /// ```
+    ///
+    /// # Returns
+    /// True if the job was added, false if not
+    #[pyo3(text_signature = "($self, job)")]
+    fn add(&mut self, job: Job) -> PyResult<bool> {
         let id: i32 = self
             .client
             .query_one(
@@ -131,6 +198,22 @@ impl PgCronner {
         Ok(id > 0)
     }
 
+    /// Remove a job
+    ///
+    /// # Arguments
+    /// * `jobname` - The name of the job to remove
+    ///
+    /// # Example
+    /// ```
+    /// import pgcronner
+    ///
+    /// pgcronner = pgcronner.PgCronner()
+    /// pgcronner.remove("myjob")
+    /// ```
+    ///
+    /// # Returns
+    /// True if the job was removed, false if not
+    #[pyo3(text_signature = "($self, jobname)")]
     fn remove(&mut self, jobname: String) -> PyResult<bool> {
         let id: i32 = self
             .client
@@ -144,6 +227,19 @@ impl PgCronner {
         Ok(id > 0)
     }
 
+    /// Clear all jobs
+    ///
+    /// # Example
+    /// ```
+    /// import pgcronner
+    ///
+    /// pgcronner = pgcronner.PgCronner()
+    /// pgcronner.clear()
+    /// ```
+    ///
+    /// # Returns
+    /// True if the jobs were cleared, false if not
+    #[pyo3(text_signature = "($self)")]
     fn clear(&mut self) -> PyResult<bool> {
         self.client
             .query(&format!("DELETE FROM {}", self.table_name), &[])
@@ -160,6 +256,19 @@ impl PgCronner {
         Ok(true)
     }
 
+    /// Sync all jobs while dumping all old jobs
+    ///
+    /// # Example
+    /// ```
+    /// import pgcronner
+    ///
+    /// pgcronner = pgcronner.PgCronner()
+    /// pgcronner.sync()
+    /// ```
+    ///
+    /// # Returns
+    /// True if the jobs were synced, false if not
+    #[pyo3(text_signature = "($self)")]
     fn sync(&mut self, _py: Python) -> PyResult<bool> {
         let jobs: Vec<Job> = self
             .client
@@ -173,7 +282,15 @@ impl PgCronner {
                     .map_err(|e| {
                         PyValueError::new_err(format!("Could not convert row to job: {}", e))
                     })
-                    .unwrap()
+                    .unwrap_or_else(|_| {
+                        warn!("Could not convert row to job, skipping");
+                        Job {
+                            name: "".to_string(),
+                            schedule: "".to_string(),
+                            command: "".to_string(),
+                            source: "".to_string(),
+                        }
+                    })
             })
             .collect::<Vec<Job>>();
 
@@ -187,20 +304,35 @@ impl PgCronner {
             job.source.is_empty().not().then(|| {
                 info!("Job calls stored procedure and source is not empty.");
 
-                let name: String = get_stored_procedure_name(&job.command, &job.name).unwrap();
-                create_stored_procedure(&mut self.client, &name, &job.source)
-                    .map_err(|e| {
+                let name: String = get_stored_procedure_name(&job.command, &job.name);
+                let _ =
+                    create_stored_procedure(&mut self.client, &name, &job.source).map_err(|e| {
                         PyValueError::new_err(format!("Could not create stored procedure: {}", e))
-                    })
-                    .unwrap();
+                    });
             });
 
-            schedule_job(&mut self.client, &job)
-                .map_err(|e| PyValueError::new_err(format!("Could not schedule job: {}", e)))
-                .unwrap();
+            let _ = schedule_job(&mut self.client, &job)
+                .map_err(|e| PyValueError::new_err(format!("Could not schedule job: {}", e)));
         });
 
         Ok(true)
+    }
+}
+
+#[pymethods]
+impl PgCronner {
+    fn __str__(&self) -> PyResult<String> {
+        Ok(format!(
+            "PgCronner(db_uri={}, table_name={})",
+            self.db_uri, self.table_name
+        ))
+    }
+
+    fn __repr__(&self) -> PyResult<String> {
+        Ok(format!(
+            "PgCronner(db_uri={}, table_name={})",
+            self.db_uri, self.table_name
+        ))
     }
 }
 
@@ -209,6 +341,6 @@ impl PgCronner {
 fn pgcronner(_py: Python, m: &PyModule) -> PyResult<()> {
     pyo3_log::init();
     m.add_class::<PgCronner>()?;
-    m.add_class::<JobBuilder>()?;
+    m.add_class::<Job>()?;
     Ok(())
 }
