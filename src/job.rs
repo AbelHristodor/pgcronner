@@ -1,56 +1,55 @@
+//! Job struct
+//! A Job is a scheduled SQL command
+
+use chrono::{DateTime, Utc};
+use cron_parser::parse;
 use pyo3::prelude::*;
 use std::fmt;
 
-#[derive(Debug, Clone)]
-#[pyclass]
-pub struct JobBuilder {
-    #[pyo3(get, set)]
-    pub name: String,
-    #[pyo3(get, set)]
-    pub schedule: String,
-    #[pyo3(get, set)]
-    pub command: String,
-    #[pyo3(get, set)]
-    pub source: String,
-}
-
-#[pymethods]
-impl JobBuilder {
-    // TODO: Add docstrings, add validation
-    // TODO: Add __repr__, __str__, __eq__, __hash__, __dict__, __iter__
-    // TODO: Add tests
-
-    #[new]
-    fn new(name: String, schedule: String, command: String, source: String) -> Self {
-        JobBuilder {
-            name,
-            schedule,
-            command,
-            source,
-        }
-    }
-
-    fn build(&self) -> Job {
-        Job {
-            name: self.name.clone(),
-            schedule: self.schedule.clone(),
-            command: self.command.clone(),
-            source: self.source.clone(),
-        }
+pub fn validate_schedule(schedule: &str) -> bool {
+    let now: DateTime<Utc> = Utc::now();
+    match parse(schedule, &now).or_else(|_| Err(())) {
+        Ok(_) => true,
+        Err(_) => false,
     }
 }
 
+/// A Job is a scheduled SQL command
+///
+/// # Arguments
+/// * `name` - Name of the job
+/// * `schedule` - cron schedule
+/// * `command` - E.g. CALL my_command();
+/// * `source` - SQL source
+///
 #[derive(Debug, Clone)]
 #[pyclass]
 pub struct Job {
-    pub name: String,     // Name of the job
+    #[pyo3(get, set)]
+    pub name: String, // Name of the job
+    #[pyo3(get, set)]
     pub schedule: String, // cron schedule
-    pub command: String,  // E.g. CALL my_command()
-    pub source: String,   // SQL source
+    #[pyo3(get, set)]
+    pub command: String, // E.g. CALL my_command()
+    #[pyo3(get, set)]
+    pub source: String, // SQL source
 }
 
 #[pymethods]
 impl Job {
+    /// Create a new Job
+    ///
+    /// # Arguments
+    /// * `name` - Name of the job
+    /// * `schedule` - cron schedule
+    /// * `command` - E.g. CALL my_command()
+    /// * `source` - SQL source
+    ///
+    /// # Example
+    /// ```
+    /// job = Job("my_job", "0 0 * * *", "CALL my_command();", "SELECT * FROM my_table;")
+    /// ```
+    ///
     #[new]
     fn new(name: String, schedule: String, command: String, source: String) -> Self {
         Job {
@@ -69,5 +68,31 @@ impl fmt::Display for Job {
             "Job ({}, {}, {}, {})",
             self.name, self.schedule, self.command, self.source
         )
+    }
+}
+
+impl Job {
+    pub fn is_valid(&self) -> bool {
+        if self.name.is_empty() {
+            return false;
+        }
+        if self.schedule.is_empty() {
+            return false;
+        }
+        if self.command.is_empty() {
+            return false;
+        }
+
+        if !validate_schedule(&self.schedule) {
+            return false;
+        }
+
+        if self.command.contains("CALL") {
+            if self.source.is_empty() {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
