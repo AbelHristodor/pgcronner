@@ -21,14 +21,14 @@ To use the package, you just need to import it into your Python script.
 Here is an example of how to create a new pgcron job:
 
 ```python
-from pgcronner import PGCronner, JobBuilder
+from pgcronner import PGCronner, Job
 
 PG_URI = "postgresql://postgres:postgres@localhost:5432/postgres" 
 pgcronner = PGCronner(PG_URI)
 
 # Create a Job using the provided JobBuilder
 # my_job = JobBuilder("<name>", "<schedule>", "<command>", "<source>")
-my_job = JobBuilder("testjob", "*/5 * * * *", "SELECT 1;", "source")
+my_job = Job("testjob", "*/5 * * * *", "SELECT 1;", "source")
 
 # Pass the Job Object
 pgcronner.add(job.build())
