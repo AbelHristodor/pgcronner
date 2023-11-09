@@ -1,4 +1,5 @@
 use crate::job::Job;
+use crate::PREFIX;
 use log::debug;
 use postgres::Client;
 use pyo3::exceptions::PyValueError;
@@ -75,7 +76,10 @@ pub fn unschedule_job(client: &mut Client, name: &str) -> anyhow::Result<()> {
 
 pub fn delete_all_jobs(client: &mut Client) -> anyhow::Result<(), PyErr> {
     let q = client
-        .query("DELETE FROM cron.job ", &[])
+        .query(
+            &format!("DELETE FROM cron.job WHERE jobname LIKE {}", PREFIX),
+            &[],
+        )
         .map_err(|e| PyValueError::new_err(format!("Could not fetch cronjobs from table: {e}")))?;
 
     match q.len() {

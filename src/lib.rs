@@ -15,6 +15,8 @@ use pyo3::prelude::*;
 mod job;
 mod utils;
 
+const PREFIX: &str = "pgcronner__";
+
 // TODO: Add active flag to jobs
 // TODO: Add last run
 
@@ -187,31 +189,15 @@ impl PgCronner {
     /// True if the job was added, false if not
     #[pyo3(text_signature = "($self, job)")]
     fn add(&mut self, job: Job) -> PyResult<bool> {
-        info!("Adding job: {}", job);
-        info!("Job: {}", job);
-
         job.is_valid()
             .then_some(())
             .ok_or_else(|| PyValueError::new_err(format!("Job is not valid: {}", job)))?;
-
-        let command = match job.command.contains("CALL") {
-            true => {
-                let name = get_stored_procedure_name(&job.command, &job.name);
-
-                if name.starts_with("pgcronner__") {
-                    format!("CALL {}();", name)
-                } else {
-                    format!("CALL pgcronner__{}();", name)
-                }
-            }
-            false => job.command.clone(),
-        };
 
         let id: i32 = self
             .client
             .query_one(
                 &format!("INSERT INTO {} (name, schedule, command, source) VALUES ($1, $2, $3, $4) RETURNING id", self.table_name),
-                &[&job.name, &job.schedule, &command, &job.source],
+                &[&job.name, &job.schedule, &job.command, &job.source],
             )
             .map_err(|e| PyValueError::new_err(format!("Could not add job to DB: {}", e)))?.get(0);
 
@@ -271,12 +257,13 @@ impl PgCronner {
             .map_err(|e| PyValueError::new_err(format!("Could not clear jobs from DB: {}", e)))?;
 
         self.client
-            .query("DELETE FROM cron.job", &[])
+            .query(
+                &format!("DELETE FROM cron.job WHERE jobname LIKE {}", &PREFIX),
+                &[],
+            )
             .map_err(|e| {
                 PyValueError::new_err(format!("Could not clear jobs from cron.job: {}", e))
             })?;
-
-        // TODO: Find a way to delete stored procedures too
 
         Ok(true)
     }

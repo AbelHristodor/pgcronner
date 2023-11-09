@@ -1,10 +1,13 @@
 //! Job struct
 //! A Job is a scheduled SQL command
 
+use crate::get_stored_procedure_name;
 use chrono::{DateTime, Utc};
 use cron_parser::parse;
 use pyo3::prelude::*;
 use std::fmt;
+
+use crate::PREFIX;
 
 pub fn validate_schedule(schedule: &str) -> bool {
     let now: DateTime<Utc> = Utc::now();
@@ -35,6 +38,32 @@ pub struct Job {
     pub source: String, // SQL source
 }
 
+fn parse_command(command: &str, name: &str) -> String {
+    let command = match command.contains("CALL") {
+        true => {
+            let name = get_stored_procedure_name(&command, &name);
+
+            if name.starts_with(PREFIX) {
+                format!("CALL {}();", name)
+            } else {
+                format!("CALL {}{}();", PREFIX, name)
+            }
+        }
+        false => command.clone().to_string(),
+    };
+
+    return command;
+}
+
+fn parse_name(name: &str) -> String {
+    let name = match name.starts_with(PREFIX) {
+        true => name.to_string(),
+        false => format!("{}{}", PREFIX, name),
+    };
+
+    return name;
+}
+
 #[pymethods]
 impl Job {
     /// Create a new Job
@@ -51,8 +80,11 @@ impl Job {
     /// ```
     ///
     #[new]
-    fn new(name: String, schedule: String, command: String, source: String) -> Self {
-        Job {
+    pub fn new(name: String, schedule: String, command: String, source: String) -> Self {
+        let name = parse_name(&name);
+        let command = parse_command(&command, &name);
+
+        Self {
             name,
             schedule,
             command,
@@ -74,6 +106,9 @@ impl fmt::Display for Job {
 impl Job {
     pub fn is_valid(&self) -> bool {
         if self.name.is_empty() {
+            return false;
+        }
+        if self.name.starts_with(PREFIX) {
             return false;
         }
         if self.schedule.is_empty() {
