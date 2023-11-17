@@ -51,13 +51,13 @@ bcrypt = ["bcrypt"]
 
 [[package]]
 name = "pgcronner"
-version = "0.1.4"
+version = "0.1.7"
 description = "Fast pgcron manager written in Rust"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "pgcronner-0.1.4-cp311-cp311-manylinux_2_34_x86_64.whl", hash = "sha256:5cb522237b9203fe354238582418ad13b0edb73bbd303bfb4cfc2453da6b54bf"},
-    {file = "pgcronner-0.1.4.tar.gz", hash = "sha256:f39f45f568b4dc4c4b6ca3ebb0295f070ffe2e30db05439ba36783da2725d158"},
+    {file = "pgcronner-0.1.7-cp311-cp311-manylinux_2_34_x86_64.whl", hash = "sha256:18499cdb5f2ff5c18e28e6f1aefb447bfcd772093b8587d38f4d2b108a572dd4"},
+    {file = "pgcronner-0.1.7.tar.gz", hash = "sha256:3f4c7ff0858aecc9fed9a3d278b51bafb329039510c53ceb606b2004e8e8993d"},
 ]
 
 [[package]]
@@ -179,4 +179,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "64e21659f4cd1c8bf869aad058392b2d63943735de403a8b3ceceb0b33c1d7bf"
+content-hash = "d396405ca45ee0cdfcffef84dd3206ee11dc8597975ae1bf5dd1ddfed5c2976b"
