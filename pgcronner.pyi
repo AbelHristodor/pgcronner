@@ -71,7 +71,14 @@ class PgCronner(object):
 
         :throws: ValueError
         """
+    
+    def refresh(self) -> bool:
+        """
+        Refreshes jobs's last_run field
+        
+        :return: True if successful
 
+        """
 
     def clear(self) -> bool:
         """
