@@ -1,4 +1,5 @@
 from typing import Optional, Self, List, Dict, Any
+import datetime
 
 class Job(object):
     """
@@ -10,6 +11,13 @@ class Job(object):
     :param source: source of function if command is a function call e.g. "CALL f();"
 
     """
+    name: str
+    schedule: str
+    command: str
+    source: str
+    last_run: Optional[datetime.datetime]
+    active: bool
+
     def __init__(self, name: str, schedule: str, command: str, source: str) -> None: ...
 
 class PgCronner(object):

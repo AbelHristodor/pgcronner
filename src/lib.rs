@@ -5,7 +5,7 @@
 use crate::job::Job;
 use crate::utils::{
     create_stored_procedure, create_table, delete_all_jobs, delete_all_stored_procedures,
-    get_stored_procedure_name, schedule_job,
+    get_last_run, get_stored_procedure_name, schedule_job,
 };
 use log::{debug, info, warn};
 use postgres::{Client, NoTls};
@@ -25,12 +25,15 @@ fn get_db_connection(uri: &String) -> anyhow::Result<Client> {
     Ok(client)
 }
 
-fn row_to_job(row: &postgres::Row) -> anyhow::Result<Job> {
+fn row_to_job(row: &postgres::Row, client: &mut Client) -> anyhow::Result<Job> {
+    let name: String = row.try_get(1)?;
     let job = Job {
-        name: row.try_get(1)?,
+        name: name.clone(),
         schedule: row.try_get(3)?,
         command: row.try_get(2)?,
         source: row.try_get(4)?,
+        active: row.try_get(5)?,
+        last_run: get_last_run(client, &name),
     };
     Ok(job)
 }
@@ -126,7 +129,7 @@ impl PgCronner {
         let mut jobs = Vec::new();
 
         for row in rows {
-            let job = row_to_job(&row).map_err(|e| {
+            let job = row_to_job(&row, &mut self.client).map_err(|e| {
                 PyValueError::new_err(format!("Could not convert row to job: {}", e))
             })?;
             jobs.push(job.into_py(_py));
@@ -161,7 +164,7 @@ impl PgCronner {
 
         match rows {
             Some(row) => {
-                let job = row_to_job(&row).map_err(|e| {
+                let job = row_to_job(&row, &mut self.client).map_err(|e| {
                     PyValueError::new_err(format!("Could not convert row to job: {}", e))
                 })?;
                 Ok(job.into_py(_py))
@@ -258,7 +261,7 @@ impl PgCronner {
 
         self.client
             .query(
-                &format!("DELETE FROM cron.job WHERE jobname LIKE {}", &PREFIX),
+                &format!("DELETE FROM cron.job WHERE jobname LIKE '{}'", &PREFIX),
                 &[],
             )
             .map_err(|e| {
@@ -266,6 +269,54 @@ impl PgCronner {
             })?;
 
         Ok(true)
+    }
+
+    /// Refresh all jobs
+    /// This will update the last_run column for all jobs
+    /// This is useful if you want to keep track of when a job was last run
+    ///
+    /// # Example
+    /// ```
+    /// import pgcronner
+    ///
+    /// pgcronner = pgcronner.PgCronner()
+    /// pgcronner.refresh()
+    ///```
+    ///
+    /// # Returns
+    /// True if the jobs were refreshed, false if not
+    #[pyo3(text_signature = "($self)")]
+    fn refresh(&mut self) -> PyResult<bool> {
+        let q = self
+            .client
+            .query(&format!("SELECT * FROM {}", self.table_name), &[])
+            .map_err(|e| {
+                PyValueError::new_err(format!("Could not fetch cronjobs from table: {e}"))
+            })?;
+
+        match q.len() {
+            0 => Ok(false),
+            _ => {
+                q.iter().for_each(|job| {
+                    let name: String = job.get(1);
+                    let last_run: chrono::DateTime<chrono::Utc> =
+                        get_last_run(&mut self.client, &name).unwrap_or_default();
+                    debug!("Last run for job: {:?}", last_run);
+                    let _ = self
+                        .client
+                        .query(
+                            &format!("UPDATE {} SET last_run=$1 WHERE name=$2", self.table_name),
+                            &[&last_run, &name],
+                        )
+                        .map_err(|e| {
+                            PyValueError::new_err(format!("Could not update last_run: {}", e))
+                        });
+
+                    debug!("Updated last_run for job: {}", name);
+                });
+                Ok(true)
+            }
+        }
     }
 
     /// Sync all jobs while dumping all old jobs
@@ -290,7 +341,7 @@ impl PgCronner {
             })?
             .iter()
             .map(|row| {
-                row_to_job(&row)
+                row_to_job(&row, &mut self.client)
                     .map_err(|e| {
                         PyValueError::new_err(format!("Could not convert row to job: {}", e))
                     })
@@ -301,6 +352,8 @@ impl PgCronner {
                             schedule: "".to_string(),
                             command: "".to_string(),
                             source: "".to_string(),
+                            active: false,
+                            last_run: None,
                         }
                     })
             })
@@ -399,6 +452,8 @@ mod tests {
             schedule: "*/5 * * * *".to_string(),
             command: "SELECT 1".to_string(),
             source: "".to_string(),
+            active: true,
+            last_run: None,
         };
         assert!(job.name.is_empty().not());
         assert!(job.schedule.is_empty().not());

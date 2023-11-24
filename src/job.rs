@@ -4,7 +4,9 @@
 use crate::get_stored_procedure_name;
 use chrono::{DateTime, Utc};
 use cron_parser::parse;
+use log::debug;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use std::fmt;
 
 use crate::PREFIX;
@@ -36,6 +38,8 @@ pub struct Job {
     pub command: String, // E.g. CALL my_command()
     #[pyo3(get, set)]
     pub source: String, // SQL source
+    pub last_run: Option<DateTime<Utc>>,
+    pub active: bool,
 }
 
 fn parse_command(command: &str, name: &str) -> String {
@@ -89,7 +93,42 @@ impl Job {
             schedule,
             command,
             source,
+            last_run: None,
+            active: true,
         }
+    }
+
+    pub fn __dict__(&self, _py: Python) -> PyResult<Py<PyAny>> {
+        let dict = PyDict::new(_py);
+
+        let last_run = match self.last_run {
+            Some(last_run) => last_run.to_string(),
+            None => "".to_string(),
+        };
+
+        dict.set_item("name", self.name.clone())?;
+        dict.set_item("schedule", self.schedule.clone())?;
+        dict.set_item("command", self.command.clone())?;
+        dict.set_item("source", self.source.clone())?;
+        dict.set_item("last_run", last_run)?;
+        dict.set_item("active", self.active)?;
+
+        Ok(dict.into())
+    }
+
+    pub fn __str__(&self) -> PyResult<String> {
+        Ok(format!(
+            "Job ({}, {}, {}, {}, {}, {})",
+            self.name,
+            self.schedule,
+            self.command,
+            self.source,
+            self.active,
+            match self.last_run {
+                Some(last_run) => last_run.to_string(),
+                None => "".to_string(),
+            }
+        ))
     }
 }
 
@@ -106,28 +145,34 @@ impl fmt::Display for Job {
 impl Job {
     pub fn is_valid(&self) -> bool {
         if self.name.is_empty() {
+            debug!("Name is empty");
             return false;
         }
-        if self.name.starts_with(PREFIX) {
+        if !self.name.starts_with(PREFIX) {
+            debug!("Name starts with {}", PREFIX);
             return false;
         }
         if self.schedule.is_empty() {
+            debug!("Schedule is empty");
             return false;
         }
         if self.command.is_empty() {
+            debug!("Command is empty");
             return false;
         }
 
         if !validate_schedule(&self.schedule) {
+            debug!("Schedule is invalid");
             return false;
         }
 
         if self.command.contains("CALL") {
             if self.source.is_empty() {
+                debug!("Source is empty");
                 return false;
             }
         }
-
+        debug!("Job is valid");
         return true;
     }
 }

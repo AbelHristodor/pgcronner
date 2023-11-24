@@ -1,5 +1,7 @@
 use crate::job::Job;
 use crate::PREFIX;
+use chrono::DateTime;
+use chrono::Utc;
 use log::debug;
 use postgres::Client;
 use pyo3::exceptions::PyValueError;
@@ -75,20 +77,16 @@ pub fn unschedule_job(client: &mut Client, name: &str) -> anyhow::Result<()> {
 }
 
 pub fn delete_all_jobs(client: &mut Client) -> anyhow::Result<(), PyErr> {
+    debug!("Deleting all jobs");
     let q = client
         .query(
-            &format!("DELETE FROM cron.job WHERE jobname LIKE {}", PREFIX),
+            &format!("DELETE FROM cron.job WHERE jobname LIKE '{}'", PREFIX),
             &[],
         )
         .map_err(|e| PyValueError::new_err(format!("Could not fetch cronjobs from table: {e}")))?;
 
-    match q.len() {
-        0 => Ok(()),
-        e => Err(PyValueError::new_err(format!(
-            "Could not delete all jobs: {}",
-            e
-        ))),
-    }
+    debug!("Deleted all jobs: {:?}", q);
+    Ok(())
 }
 
 pub fn delete_all_stored_procedures(client: &mut Client) -> anyhow::Result<(), PyErr> {
@@ -131,7 +129,9 @@ pub fn create_table<'a>(client: &mut Client, table_name: &str) -> anyhow::Result
         command TEXT NOT NULL,
         schedule VARCHAR(255) NOT NULL,
         source TEXT,
-        created TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)",
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        last_run TIMESTAMPTZ,
+        created TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)",
     );
 
     client
@@ -139,4 +139,31 @@ pub fn create_table<'a>(client: &mut Client, table_name: &str) -> anyhow::Result
         .map_err(|err| PyValueError::new_err(format!("Could not create init table: {err}")))?;
 
     Ok(table_name)
+}
+
+pub fn get_last_run(client: &mut Client, jobname: &str) -> Option<DateTime<Utc>> {
+    let q = client
+        .query(
+            &format!(
+                "
+            WITH job AS (
+                SELECT jobid FROM cron.job WHERE jobname = '{}'
+            )
+            SELECT max(start_time) as last_run_time FROM cron.job_run_details WHERE jobid = (SELECT jobid FROM job)",
+                jobname
+            ),
+            &[],
+        )
+        .map_err(|e| PyValueError::new_err(format!("Could not fetch last run time: {e}")))
+        .expect("Could not fetch last run time");
+
+    debug!("Last run query: {:?}", q);
+
+    let last_run = q
+        .iter()
+        .next()
+        .expect("Could not get last run time")
+        .get::<_, Option<DateTime<Utc>>>("last_run_time");
+
+    return last_run;
 }
