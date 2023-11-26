@@ -12,11 +12,7 @@ use std::fmt;
 use crate::PREFIX;
 
 pub fn validate_schedule(schedule: &str) -> bool {
-    let now: DateTime<Utc> = Utc::now();
-    match parse(schedule, &now).or_else(|_| Err(())) {
-        Ok(_) => true,
-        Err(_) => false,
-    }
+    parse(schedule, &Utc::now()).map_err(|_| ()).is_ok()
 }
 
 /// A Job is a scheduled SQL command
@@ -43,9 +39,9 @@ pub struct Job {
 }
 
 fn parse_command(command: &str, name: &str) -> String {
-    let command = match command.contains("CALL") {
+    match command.contains("CALL") {
         true => {
-            let name = get_stored_procedure_name(&command, &name);
+            let name = get_stored_procedure_name(command, name);
 
             if name.starts_with(PREFIX) {
                 format!("CALL {}();", name)
@@ -54,18 +50,14 @@ fn parse_command(command: &str, name: &str) -> String {
             }
         }
         false => command.clone().to_string(),
-    };
-
-    return command;
+    }
 }
 
 fn parse_name(name: &str) -> String {
-    let name = match name.starts_with(PREFIX) {
+    match name.starts_with(PREFIX) {
         true => name.to_string(),
         false => format!("{}{}", PREFIX, name),
-    };
-
-    return name;
+    }
 }
 
 #[pymethods]
@@ -143,6 +135,9 @@ impl fmt::Display for Job {
 }
 
 impl Job {
+    pub fn has_stored_procedure(&self) -> bool {
+        self.command.contains("CALL")
+    }
     pub fn is_valid(&self) -> bool {
         if self.name.is_empty() {
             debug!("Name is empty");
@@ -166,13 +161,6 @@ impl Job {
             return false;
         }
 
-        if self.command.contains("CALL") {
-            if self.source.is_empty() {
-                debug!("Source is empty");
-                return false;
-            }
-        }
-        debug!("Job is valid");
-        return true;
+        !(self.has_stored_procedure() && self.source.is_empty())
     }
 }

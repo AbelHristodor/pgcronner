@@ -20,7 +20,7 @@ const PREFIX: &str = "pgcronner__";
 // TODO: Add active flag to jobs
 // TODO: Add last run
 
-fn get_db_connection(uri: &String) -> anyhow::Result<Client> {
+fn get_db_connection(uri: &str) -> anyhow::Result<Client> {
     let client = Client::connect(uri, NoTls)?;
     Ok(client)
 }
@@ -199,8 +199,8 @@ impl PgCronner {
         let id: i32 = self
             .client
             .query_one(
-                &format!("INSERT INTO {} (name, schedule, command, source) VALUES ($1, $2, $3, $4) RETURNING id", self.table_name),
-                &[&job.name, &job.schedule, &job.command, &job.source],
+                &format!("INSERT INTO {} (name, schedule, command, source, active) VALUES ($1, $2, $3, $4, $5) RETURNING id", self.table_name),
+                &[&job.name, &job.schedule, &job.command, &job.source, &job.active],
             )
             .map_err(|e| PyValueError::new_err(format!("Could not add job to DB: {}", e)))?.get(0);
 
@@ -341,7 +341,7 @@ impl PgCronner {
             })?
             .iter()
             .map(|row| {
-                row_to_job(&row, &mut self.client)
+                row_to_job(row, &mut self.client)
                     .map_err(|e| {
                         PyValueError::new_err(format!("Could not convert row to job: {}", e))
                     })
@@ -365,29 +365,16 @@ impl PgCronner {
         delete_all_stored_procedures(&mut self.client)?;
 
         // Schedule cronjobs
-        jobs.into_iter().for_each(|job| {
-            debug!("Found job: {}", job);
-            job.is_valid()
-                .then(|| {
-                    info!("Job is valid: {}", job);
+        jobs.iter().for_each(|job| {
+            if job.is_valid() && job.active {
+                if job.has_stored_procedure() {
+                    let name = get_stored_procedure_name(&job.command, &job.name);
+                    create_stored_procedure(&mut self.client, &name, &job.command).ok();
+                }
 
-                    if job.command.contains("CALL") {
-                        debug!("Job calls stored procedure and source is not empty.");
-
-                        let name: String = get_stored_procedure_name(&job.command, &job.name);
-
-                        debug!("Creating stored procedure: {}", name);
-                        create_stored_procedure(&mut self.client, &name, &job.source)
-                    } else {
-                        Ok(())
-                    }
-                })
-                .and_then(|_| {
-                    debug!("Scheduling job: {}", job);
-                    schedule_job(&mut self.client, &job).ok()
-                });
+                schedule_job(&mut self.client, job).ok();
+            }
         });
-
         info!("Synced jobs");
         Ok(true)
     }

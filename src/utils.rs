@@ -20,7 +20,7 @@ pub fn get_stored_procedure_name(command: &str, default: &str) -> String {
         None => default,
     };
 
-    return res.to_string();
+    res.to_string()
 }
 
 pub fn create_stored_procedure(
@@ -116,7 +116,7 @@ pub fn delete_all_stored_procedures(client: &mut Client) -> anyhow::Result<(), P
     Ok(())
 }
 
-pub fn create_table<'a>(client: &mut Client, table_name: &str) -> anyhow::Result<String> {
+pub fn create_table(client: &mut Client, table_name: &str) -> anyhow::Result<String> {
     let table_name = match table_name.is_empty() {
         true => "pgcronner_jobs".to_string(),
         false => table_name.trim().to_lowercase(),
@@ -160,10 +160,9 @@ pub fn get_last_run(client: &mut Client, jobname: &str) -> Option<DateTime<Utc>>
     debug!("Last run query: {:?}", q);
 
     let last_run = q
-        .iter()
-        .next()
+        .first()
         .expect("Could not get last run time")
         .get::<_, Option<DateTime<Utc>>>("last_run_time");
 
-    return last_run;
+    last_run
 }
