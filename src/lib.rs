@@ -277,10 +277,19 @@ impl PgCronner {
     /// True if the jobs were cleared, false if not
     #[pyo3(text_signature = "($self)")]
     fn clear(&mut self) -> PyResult<bool> {
-        match self
+        let q1 = self
             .client
-            .query(&format!("DELETE FROM {}", self.table_name), &[])
-        {
+            .query(&format!("DELETE FROM {}", self.table_name), &[]);
+
+        if q1.is_err() {
+            return Err(DbError::new(format!(
+                "Could not clear jobs from table: {}",
+                &q1.err().unwrap()
+            ))
+            .into());
+        }
+
+        match self.client.query("DELETE FROM cron.job", &[]) {
             Ok(_) => {
                 info!("Cleared all jobs");
                 Ok(true)

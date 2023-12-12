@@ -99,7 +99,7 @@ pub fn delete_all_stored_procedures(client: &mut Client) -> Result<(), DbError> 
                 FOR func_name IN
                     SELECT proname
                     FROM pg_catalog.pg_proc
-                    WHERE proname LIKE 'pgcronner__%' AND prokind = 'f'
+                    WHERE proname LIKE 'pgcronner%' AND prokind = 'f'
                 LOOP
                     EXECUTE 'DROP FUNCTION IF EXISTS ' || func_name || ' CASCADE';
                 END LOOP;
