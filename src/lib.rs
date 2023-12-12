@@ -7,32 +7,61 @@ use crate::utils::{
     create_stored_procedure, create_table, delete_all_jobs, delete_all_stored_procedures,
     get_last_run, get_stored_procedure_name, schedule_job,
 };
+use errors::{ConvertError, DbError};
 use log::{debug, info, warn};
 use postgres::{Client, NoTls};
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyOSError, PyValueError};
 use pyo3::prelude::*;
 
+mod errors;
 mod job;
 mod utils;
 
 const PREFIX: &str = "pgcronner__";
 
-// TODO: Add active flag to jobs
-// TODO: Add last run
-
-fn get_db_connection(uri: &str) -> anyhow::Result<Client> {
+fn get_db_connection(uri: &String) -> anyhow::Result<Client> {
     let client = Client::connect(uri, NoTls)?;
     Ok(client)
 }
 
-fn row_to_job(row: &postgres::Row, client: &mut Client) -> anyhow::Result<Job> {
-    let name: String = row.try_get(1)?;
+fn row_to_job(row: &postgres::Row, client: &mut Client) -> Result<Job, ConvertError> {
+    let name: String = row.try_get(1).map_err(|e| {
+        ConvertError::new(format!(
+            "Could not convert row to job, could not get name: {}",
+            &e
+        ))
+    })?;
+    let schedule: String = row.try_get(3).map_err(|e| {
+        ConvertError::new(format!(
+            "Could not convert row to job, could not get schedule: {}",
+            e
+        ))
+    })?;
+    let command: String = row.try_get(2).map_err(|e| {
+        ConvertError::new(format!(
+            "Could not convert row to job, could not get command: {}",
+            &e
+        ))
+    })?;
+    let source: String = row.try_get(4).map_err(|e| {
+        ConvertError::new(format!(
+            "Could not convert row to job, could not get source: {}",
+            &e
+        ))
+    })?;
+    let active: bool = row.try_get(5).map_err(|e| {
+        ConvertError::new(format!(
+            "Could not convert row to job, could not get active: {}",
+            &e
+        ))
+    })?;
+
     let job = Job {
         name: name.clone(),
-        schedule: row.try_get(3)?,
-        command: row.try_get(2)?,
-        source: row.try_get(4)?,
-        active: row.try_get(5)?,
+        schedule,
+        command,
+        source,
+        active,
         last_run: get_last_run(client, &name),
     };
     Ok(job)
@@ -84,7 +113,7 @@ impl PgCronner {
                     warn!("No DB Uri set, trying env variable");
                     match std::env::var("DATABASE_URL") {
                         Ok(uri) => uri,
-                        Err(_) => return Err(PyValueError::new_err(
+                        Err(_) => return Err(PyOSError::new_err(
                             "No DB Uri set, please set it or set the DATABASE_URL env variable!",
                         )),
                     }
@@ -92,10 +121,9 @@ impl PgCronner {
             };
 
         let mut client =
-            get_db_connection(&uri).or(Err(PyValueError::new_err("Could not connect to DB!")))?;
+            get_db_connection(&uri).or(Err(PyOSError::new_err("Could not connect to DB!")))?;
 
-        let table_name = create_table(&mut client, &table_name.unwrap_or("".to_string()))
-            .map_err(|e| PyValueError::new_err(format!("Could not create table: {}", e)))?;
+        let table_name = create_table(&mut client, &table_name.unwrap_or("".to_string()))?;
 
         Ok(PgCronner {
             db_uri: uri,
@@ -124,14 +152,12 @@ impl PgCronner {
         let rows = self
             .client
             .query(&format!("SELECT * FROM {}", self.table_name), &[])
-            .map_err(|e| PyValueError::new_err(format!("Could not get jobs from DB: {}", e)))?;
+            .map_err(|e| DbError::new(format!("Could not get jobs from DB: {}", &e)))?;
 
         let mut jobs = Vec::new();
 
         for row in rows {
-            let job = row_to_job(&row, &mut self.client).map_err(|e| {
-                PyValueError::new_err(format!("Could not convert row to job: {}", e))
-            })?;
+            let job = row_to_job(&row, &mut self.client)?;
             jobs.push(job.into_py(_py));
         }
         Ok(jobs)
@@ -160,16 +186,14 @@ impl PgCronner {
                 &format!("SELECT * FROM {} WHERE name = $1", self.table_name),
                 &[&jobname],
             )
-            .map_err(|e| PyValueError::new_err(format!("Could not get job from DB: {}", e)))?;
+            .map_err(|e| PyValueError::new_err(format!("Could not get job from DB: {}", &e)))?;
 
         match rows {
             Some(row) => {
-                let job = row_to_job(&row, &mut self.client).map_err(|e| {
-                    PyValueError::new_err(format!("Could not convert row to job: {}", e))
-                })?;
+                let job = row_to_job(&row, &mut self.client)?;
                 Ok(job.into_py(_py))
             }
-            None => Err(PyValueError::new_err(format!("Job {} not found!", jobname))),
+            None => Err(DbError::new(format!("Job {} not found!", &jobname)).into()),
         }
     }
 
@@ -192,24 +216,19 @@ impl PgCronner {
     /// True if the job was added, false if not
     #[pyo3(text_signature = "($self, job)")]
     fn add(&mut self, job: Job) -> PyResult<bool> {
-        job.is_valid()
-            .then_some(())
-            .ok_or_else(|| PyValueError::new_err(format!("Job is not valid: {}", job)))?;
+        job.is_valid()?;
 
-        let id: i32 = self
+        match self
             .client
             .query_one(
-                &format!("INSERT INTO {} (name, schedule, command, source, active) VALUES ($1, $2, $3, $4, $5) RETURNING id", self.table_name),
-                &[&job.name, &job.schedule, &job.command, &job.source, &job.active],
-            )
-            .map_err(|e| PyValueError::new_err(format!("Could not add job to DB: {}", e)))?.get(0);
-
-        match id {
-            0 => Err(PyValueError::new_err(format!(
-                "Could not add job: {}",
-                &job
-            ))),
-            _ => Ok(true),
+                &format!("INSERT INTO {} (name, schedule, command, source) VALUES ($1, $2, $3, $4) RETURNING id", self.table_name),
+                &[&job.name, &job.schedule, &job.command, &job.source],
+            ) {
+            Ok(_) => {
+                debug!("Added job: {}", job);
+                Ok(true)
+            }
+            Err(e) => Err(DbError::new(format!("Could not add job to DB: {}", &e)).into()),
         }
     }
 
@@ -231,14 +250,17 @@ impl PgCronner {
     #[pyo3(text_signature = "($self, jobname)")]
     fn remove(&mut self, jobname: String) -> PyResult<bool> {
         info!("Removing job: {}", jobname);
-        self.client
-            .query(
-                &format!("DELETE FROM {} WHERE name=$1", self.table_name),
-                &[&jobname],
-            )
-            .map_err(|e| PyValueError::new_err(format!("Could not remove job from DB: {}", e)))?;
 
-        Ok(true)
+        match self.client.query(
+            &format!("DELETE FROM {} WHERE name=$1", self.table_name),
+            &[&jobname],
+        ) {
+            Ok(_) => {
+                info!("Removed job: {}", jobname);
+                Ok(true)
+            }
+            Err(e) => Err(DbError::new(format!("Could not remove job from DB: {}", &e)).into()),
+        }
     }
 
     /// Clear all jobs
@@ -255,20 +277,16 @@ impl PgCronner {
     /// True if the jobs were cleared, false if not
     #[pyo3(text_signature = "($self)")]
     fn clear(&mut self) -> PyResult<bool> {
-        self.client
+        match self
+            .client
             .query(&format!("DELETE FROM {}", self.table_name), &[])
-            .map_err(|e| PyValueError::new_err(format!("Could not clear jobs from DB: {}", e)))?;
-
-        self.client
-            .query(
-                &format!("DELETE FROM cron.job WHERE jobname LIKE '{}'", &PREFIX),
-                &[],
-            )
-            .map_err(|e| {
-                PyValueError::new_err(format!("Could not clear jobs from cron.job: {}", e))
-            })?;
-
-        Ok(true)
+        {
+            Ok(_) => {
+                info!("Cleared all jobs");
+                Ok(true)
+            }
+            Err(e) => Err(DbError::new(format!("Could not clear jobs from table: {}", &e)).into()),
+        }
     }
 
     /// Refresh all jobs
@@ -290,27 +308,27 @@ impl PgCronner {
         let q = self
             .client
             .query(&format!("SELECT * FROM {}", self.table_name), &[])
-            .map_err(|e| {
-                PyValueError::new_err(format!("Could not fetch cronjobs from table: {e}"))
-            })?;
+            .map_err(|e| DbError::new(format!("Could not fetch cronjobs from table: {}", &e)))?;
 
         match q.len() {
-            0 => Ok(false),
+            0 => Ok(true),
             _ => {
                 q.iter().for_each(|job| {
                     let name: String = job.get(1);
                     let last_run: chrono::DateTime<chrono::Utc> =
                         get_last_run(&mut self.client, &name).unwrap_or_default();
+
                     debug!("Last run for job: {:?}", last_run);
-                    let _ = self
-                        .client
-                        .query(
-                            &format!("UPDATE {} SET last_run=$1 WHERE name=$2", self.table_name),
-                            &[&last_run, &name],
-                        )
-                        .map_err(|e| {
-                            PyValueError::new_err(format!("Could not update last_run: {}", e))
-                        });
+
+                    match self.client.query(
+                        &format!("UPDATE {} SET last_run=$1 WHERE name=$2", self.table_name),
+                        &[&last_run, &name],
+                    ) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            warn!("Could not update last_run for job: {}", &e);
+                        }
+                    }
 
                     debug!("Updated last_run for job: {}", name);
                 });
@@ -332,32 +350,22 @@ impl PgCronner {
     /// # Returns
     /// True if the jobs were synced, false if not
     #[pyo3(text_signature = "($self)")]
-    fn sync(&mut self, _py: Python) -> PyResult<bool> {
+    fn sync(&mut self, _py: Python) -> PyResult<u32> {
         let jobs: Vec<Job> = self
             .client
             .query(&format!("SELECT * FROM {}", self.table_name), &[])
-            .map_err(|e| {
-                PyValueError::new_err(format!("Could not fetch cronjobs from table: {e}"))
-            })?
+            .map_err(|e| DbError::new(format!("Could not fetch cronjobs from table: {}", &e)))?
             .iter()
-            .map(|row| {
-                row_to_job(row, &mut self.client)
-                    .map_err(|e| {
-                        PyValueError::new_err(format!("Could not convert row to job: {}", e))
-                    })
-                    .unwrap_or_else(|_| {
-                        warn!("Could not convert row to job, skipping");
-                        Job {
-                            name: "".to_string(),
-                            schedule: "".to_string(),
-                            command: "".to_string(),
-                            source: "".to_string(),
-                            active: false,
-                            last_run: None,
-                        }
-                    })
+            .map_while(|row| match row_to_job(&row, &mut self.client) {
+                Ok(job) => Some(job),
+                Err(e) => {
+                    warn!("Could not convert row to job: {}", e);
+                    None
+                }
             })
-            .collect::<Vec<Job>>();
+            .filter(|job| job.is_valid().is_ok())
+            .collect();
+
         debug!("Fetched {} jobs from DB", jobs.len());
 
         debug!("Dumping all jobs and replacing with jobs in DB");
@@ -365,18 +373,34 @@ impl PgCronner {
         delete_all_stored_procedures(&mut self.client)?;
 
         // Schedule cronjobs
-        jobs.iter().for_each(|job| {
-            if job.is_valid() && job.active {
-                if job.has_stored_procedure() {
-                    let name = get_stored_procedure_name(&job.command, &job.name);
-                    create_stored_procedure(&mut self.client, &name, &job.command).ok();
+        let jobs = jobs
+            .iter()
+            .map_while(|job| match job.uses_stored_procedure() {
+                true => {
+                    debug!("Creating stored procedure for job: {}", job.name);
+                    let stored_procedure = get_stored_procedure_name(&job.command, &job.name);
+                    match create_stored_procedure(&mut self.client, &stored_procedure, &job.source)
+                    {
+                        Ok(_) => {
+                            debug!("Created stored procedure for job: {}", job.name);
+                            Some(job)
+                        }
+                        Err(e) => {
+                            warn!("Could not create stored procedure for job: {}", e);
+                            None
+                        }
+                    }
                 }
+                false => Some(job),
+            })
+            .collect::<Vec<&Job>>();
 
-                schedule_job(&mut self.client, job).ok();
-            }
-        });
-        info!("Synced jobs");
-        Ok(true)
+        let results = jobs
+            .iter()
+            .map(|job| schedule_job(&mut self.client, &job))
+            .collect::<Vec<Result<(), DbError>>>();
+
+        Ok(results.into_iter().filter_map(|r| r.ok()).count() as u32)
     }
 
     /// String representation
@@ -411,18 +435,18 @@ fn pgcronner(_py: Python, m: &PyModule) -> PyResult<()> {
 mod tests {
 
     use super::*;
-    use crate::job::validate_schedule;
+    use crate::job::schedule_is_valid;
     use std::ops::Not;
 
     #[test]
     #[should_panic]
     fn test_validate_schedule() {
         // Shouldn't panic
-        assert_eq!(validate_schedule("* * * * *"), true);
-        assert_eq!(validate_schedule("*/5 * * * *"), true);
+        assert!(schedule_is_valid("* * * * *").is_ok());
+        assert!(schedule_is_valid("*/5 * * * *").is_ok());
 
         // Should panic
-        assert_eq!(validate_schedule("* * * *"), false);
+        assert!(schedule_is_valid("* * * *").is_ok());
     }
 
     #[test]
@@ -446,7 +470,7 @@ mod tests {
         assert!(job.schedule.is_empty().not());
         assert!(job.command.is_empty().not());
 
-        assert_eq!(validate_schedule(&job.schedule), true);
-        assert!(job.is_valid());
+        assert!(schedule_is_valid(&job.schedule).is_ok());
+        assert!(job.is_valid().is_ok());
     }
 }

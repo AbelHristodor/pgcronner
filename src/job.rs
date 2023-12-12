@@ -9,11 +9,8 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::fmt;
 
+use crate::errors::ValidationError;
 use crate::PREFIX;
-
-pub fn validate_schedule(schedule: &str) -> bool {
-    parse(schedule, &Utc::now()).map_err(|_| ()).is_ok()
-}
 
 /// A Job is a scheduled SQL command
 ///
@@ -53,10 +50,18 @@ fn parse_command(command: &str, name: &str) -> String {
     }
 }
 
-fn parse_name(name: &str) -> String {
+fn format_name(name: &str) -> Result<String, ValidationError> {
     match name.starts_with(PREFIX) {
-        true => name.to_string(),
-        false => format!("{}{}", PREFIX, name),
+        true => Ok(name.to_string()),
+        false => Ok(format!("{}{}", PREFIX, name)),
+    }
+}
+
+pub fn schedule_is_valid(schedule: &str) -> Result<(), ValidationError> {
+    let now: DateTime<Utc> = Utc::now();
+    match parse(schedule, &now) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(format!("Invalid schedule: {}", e).into()),
     }
 }
 
@@ -77,7 +82,7 @@ impl Job {
     ///
     #[new]
     pub fn new(name: String, schedule: String, command: String, source: String) -> Self {
-        let name = parse_name(&name);
+        let name = format_name(&name).unwrap();
         let command = parse_command(&command, &name);
 
         Self {
@@ -135,32 +140,32 @@ impl fmt::Display for Job {
 }
 
 impl Job {
-    pub fn has_stored_procedure(&self) -> bool {
-        self.command.contains("CALL")
-    }
-    pub fn is_valid(&self) -> bool {
+    pub fn is_valid(&self) -> Result<(), ValidationError> {
         if self.name.is_empty() {
-            debug!("Name is empty");
-            return false;
+            return Err("Name is empty".to_string().into());
         }
         if !self.name.starts_with(PREFIX) {
-            debug!("Name starts with {}", PREFIX);
-            return false;
+            return Err(format!("Name must start with {}", PREFIX).into());
         }
         if self.schedule.is_empty() {
-            debug!("Schedule is empty");
-            return false;
+            return Err("Schedule is empty".to_string().into());
         }
         if self.command.is_empty() {
-            debug!("Command is empty");
-            return false;
+            return Err("Command is empty".to_string().into());
         }
 
-        if !validate_schedule(&self.schedule) {
-            debug!("Schedule is invalid");
-            return false;
-        }
+        schedule_is_valid(&self.schedule)?;
 
-        !(self.has_stored_procedure() && self.source.is_empty())
+        if self.command.contains("CALL") {
+            if self.source.is_empty() {
+                return Err("Source is empty".to_string().into());
+            }
+        }
+        debug!("Job is valid");
+        return Ok(());
+    }
+
+    pub fn uses_stored_procedure(&self) -> bool {
+        self.command.contains("CALL")
     }
 }

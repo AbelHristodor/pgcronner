@@ -1,12 +1,13 @@
+use crate::errors::DbError;
 use crate::job::Job;
 use crate::PREFIX;
 use chrono::DateTime;
 use chrono::Utc;
 use log::debug;
 use postgres::Client;
-use pyo3::exceptions::PyValueError;
-use pyo3::prelude::*;
 use regex::Regex;
+
+const DEFAULT_TABLE_NAME: &str = "pgcronner_jobs";
 
 pub fn get_stored_procedure_name(command: &str, default: &str) -> String {
     // If string contains CALL, then it's a stored procedure
@@ -27,73 +28,70 @@ pub fn create_stored_procedure(
     client: &mut Client,
     name: &str,
     source: &str,
-) -> anyhow::Result<(), PyErr> {
-    let q = client
-        .query(
-            &format!(
-                "CREATE OR REPLACE FUNCTION {}() RETURNS void AS $$
+) -> Result<(), DbError> {
+    match client.query(
+        &format!(
+            "CREATE OR REPLACE FUNCTION {}() RETURNS void AS $$
             BEGIN
                 {}
             END;
             $$ LANGUAGE plpgsql;",
-                name, source
-            ),
-            &[],
-        )
-        .map_err(|e| PyValueError::new_err(format!("Could not create stored procedure: {}", e)))?;
-
-    match q.len() {
-        0 => Ok(()),
-        _ => Err(PyValueError::new_err(format!(
-            "Could not create stored procedure: {}",
-            name
-        ))),
+            name, source
+        ),
+        &[],
+    ) {
+        Ok(_) => {
+            debug!("Created stored procedure: {}", name);
+            Ok(())
+        }
+        Err(e) => Err(format!("Could not create stored procedure: {}", e).into()),
     }
 }
 
-pub fn schedule_job(client: &mut Client, job: &Job) -> anyhow::Result<(), PyErr> {
-    client
-        .query_one(
-            &format!(
-                "SELECT cron.schedule('{}', '{}', '{}')",
-                job.name, job.schedule, job.command,
-            ),
-            &[],
-        )
-        .map_err(|e| PyValueError::new_err(format!("Could not schedule job: {}", e)))?;
-
-    debug!("Scheduled job: {}", job);
-    Ok(())
+pub fn schedule_job(client: &mut Client, job: &Job) -> Result<(), DbError> {
+    match client.query_one(
+        &format!(
+            "SELECT cron.schedule('{}', '{}', '{}')",
+            job.name, job.schedule, job.command,
+        ),
+        &[],
+    ) {
+        Ok(_) => {
+            debug!("Scheduled job: {}", job);
+            Ok(())
+        }
+        Err(e) => Err(format!("Could not schedule job: {}", e).into()),
+    }
 }
 
 #[allow(dead_code)]
-pub fn unschedule_job(client: &mut Client, name: &str) -> anyhow::Result<()> {
-    client
-        .query_one(&format!("SELECT cron.unschedule('{}')", name), &[])
-        .map_err(|e| PyValueError::new_err(format!("Could not unschedule job: {}", e)))?;
-
-    debug!("Unscheduled job: {}", name);
-    Ok(())
+pub fn unschedule_job(client: &mut Client, name: &str) -> Result<(), DbError> {
+    match client.query_one(&format!("SELECT cron.unschedule('{}')", name), &[]) {
+        Ok(_) => {
+            debug!("Unscheduled job: {}", name);
+            Ok(())
+        }
+        Err(e) => Err(format!("Could not unschedule job: {}", e).into()),
+    }
 }
 
-pub fn delete_all_jobs(client: &mut Client) -> anyhow::Result<(), PyErr> {
+pub fn delete_all_jobs(client: &mut Client) -> Result<(), DbError> {
     debug!("Deleting all jobs");
-    let q = client
-        .query(
-            &format!("DELETE FROM cron.job WHERE jobname LIKE '{}'", PREFIX),
-            &[],
-        )
-        .map_err(|e| PyValueError::new_err(format!("Could not fetch cronjobs from table: {e}")))?;
-
-    debug!("Deleted all jobs: {:?}", q);
-    Ok(())
+    match client.query_opt(
+        &format!("DELETE FROM cron.job WHERE jobname LIKE 'pgcronner%'"),
+        &[],
+    ) {
+        Ok(_) => {
+            debug!("Deleted all jobs");
+            Ok(())
+        }
+        Err(e) => Err(format!("Could not fetch cronjobs from table: {e}").into()),
+    }
 }
 
-pub fn delete_all_stored_procedures(client: &mut Client) -> anyhow::Result<(), PyErr> {
-    debug!("Deleting all stored procedures");
-    client
-        .query(
-            "
+pub fn delete_all_stored_procedures(client: &mut Client) -> Result<(), DbError> {
+    match client.query(
+        "
             DO $$
             DECLARE
                 func_name TEXT;
@@ -107,18 +105,19 @@ pub fn delete_all_stored_procedures(client: &mut Client) -> anyhow::Result<(), P
                 END LOOP;
             END $$;
         ",
-            &[],
-        )
-        .map_err(|e| {
-            PyValueError::new_err(format!("Could not delete all stored procedures: {e}"))
-        })?;
-
-    Ok(())
+        &[],
+    ) {
+        Ok(_) => {
+            debug!("Deleted all stored procedures");
+            Ok(())
+        }
+        Err(e) => Err(e.to_string().into()),
+    }
 }
 
-pub fn create_table(client: &mut Client, table_name: &str) -> anyhow::Result<String> {
+pub fn create_table<'a>(client: &mut Client, table_name: &str) -> Result<String, DbError> {
     let table_name = match table_name.is_empty() {
-        true => "pgcronner_jobs".to_string(),
+        true => DEFAULT_TABLE_NAME.to_string(),
         false => table_name.trim().to_lowercase(),
     };
     let table = format!(
@@ -134,11 +133,10 @@ pub fn create_table(client: &mut Client, table_name: &str) -> anyhow::Result<Str
         created TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP)",
     );
 
-    client
-        .query(&table, &[])
-        .map_err(|err| PyValueError::new_err(format!("Could not create init table: {err}")))?;
-
-    Ok(table_name)
+    match client.query(&table, &[]) {
+        Ok(_) => Ok(table_name),
+        Err(e) => Err(format!("Could not create table: {}", e.to_string()).into()),
+    }
 }
 
 pub fn get_last_run(client: &mut Client, jobname: &str) -> Option<DateTime<Utc>> {
@@ -154,7 +152,7 @@ pub fn get_last_run(client: &mut Client, jobname: &str) -> Option<DateTime<Utc>>
             ),
             &[],
         )
-        .map_err(|e| PyValueError::new_err(format!("Could not fetch last run time: {e}")))
+        .map_err(|e| DbError::new(format!("Could not fetch last run time: {e}")))
         .expect("Could not fetch last run time");
 
     debug!("Last run query: {:?}", q);

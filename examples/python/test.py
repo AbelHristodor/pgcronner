@@ -16,41 +16,37 @@ job = Job(
     source=''
 )
 
-logger.debug("Job: %s", job)
+logger.info("Job: %s", job)
 
 # Add the job to the database
 
 try:
     add = pg.add(job)
-    logger.debug("Add job: %s", add)
+    logger.info("Add job: %s", add)
 except ValueError:
-    logger.debug("Job already exists")
-    job = Job(
-        name='test_job_2',
-        schedule='* * * * *',
-        command='SELECT 1',
-        source=''
-    )
-    add = pg.add(job)
+    logger.info("Job already exists")
+
 
 # Get the job from the database
 get = pg.one(job.name)
-logger.debug("Get job: %s", get)
+logger.info("Get job: %s", get)
 
 # Refres the job from the database
 refresh = pg.refresh()
-logger.debug("Refresh job: %s", refresh)
+logger.info("Refresh job: %s", refresh)
+
+logger.info("%s", pg.one(job.name))
 
 # Sync the job with the database
 sync = pg.sync()
-logger.debug("Sync job: %s", sync)
+logger.info("Sync job: %s", sync)
 
 # Remove the job from the database
 remove = pg.remove(job.name)
-logger.debug("Remove job: %s", remove)
+logger.info("Remove job: %s", remove)
 
 # Clear the database
 clear = pg.clear()
-logger.debug("Clear database: %s", clear)
+logger.info("Clear database: %s", clear)
 
 
