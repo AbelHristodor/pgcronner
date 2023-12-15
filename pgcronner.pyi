@@ -1,4 +1,4 @@
-from typing import Optional, Self, List, Dict, Any
+from typing import Optional, List, Dict
 import datetime
 
 class Job(object):
@@ -28,7 +28,7 @@ class PgCronner(object):
     :param table_name: table name to store jobs in
     """
 
-    def __init__(self, db_uri: str = None, table_name: str = "pgcronner_jobs"): ...
+    def __init__(self, db_uri: str = "", table_name: str = "pgcronner_jobs"): ...
 
     def __str__(self) -> str: ...
 
@@ -39,7 +39,7 @@ class PgCronner(object):
         Get all jobs in the table
 
         :return: List of jobs as dicts
-        :throws: ValueError
+        :throws: OSError
         """
 
     def one(self, jobname: str) -> Optional[Dict[str, str]]:
@@ -47,9 +47,9 @@ class PgCronner(object):
         Get one job by name
 
         :param jobname: job name
-        :return: Job instance or None as dict
+        :return: Job instance or None, as dict
 
-        :throws: ValueError
+        :throws: OsError
         """
 
     def add(self, job: Job) -> bool:
@@ -59,7 +59,7 @@ class PgCronner(object):
         :param job: Job instance
         :return: True if successful
 
-        :throws: ValueError
+        :throws: OsError
         """
 
     def remove(self, jobname: str) -> bool:
@@ -69,7 +69,7 @@ class PgCronner(object):
         :param jobname: job name
         :return: True if successful
 
-        :throws: ValueError
+        :throws: OsError
         """
     
     def refresh(self) -> bool:
@@ -78,6 +78,7 @@ class PgCronner(object):
         
         :return: True if successful
 
+        :throws: OsError
         """
 
     def clear(self) -> bool:
@@ -85,7 +86,8 @@ class PgCronner(object):
         Clears all jobs from the table and crontab
         
         :return: True if successful
-        :throws: ValueError
+        
+        :throws: OsError
         """
 
 
@@ -95,6 +97,6 @@ class PgCronner(object):
         
         :return: True if successful
 
-        :throws: ValueError
+        :throws: OsError
         """
 

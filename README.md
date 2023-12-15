@@ -31,11 +31,11 @@ pgcronner = PGCronner(PG_URI)
 my_job = Job("testjob", "*/5 * * * *", "SELECT 1;", "source")
 
 # Pass the Job Object
-pgcronner.add(job.build())
+pgcronner.add(job)
 
 # Sync db table with pgcron
 # !!! WARNING - DANGER ZONE !!!
-# This drops the `cron.job` table and populates it with the jobs in `pgcronner_jobs`
+# This deletes all jobs with prefix 'pgcronner' in the `cron.job` table and populates it with the jobs in `pgcronner_jobs`
 # See below for implementation
 
 pgcronner.sync()
@@ -58,9 +58,12 @@ job = pgcronner.one("<jobname>")
 Removing a job:
 
 ```python
-# The parameter would be the job id you want to delete.
-pgcronner.remove(job_id)
+# The parameter would be the job name you want to delete.
+pgcronner.remove(job_name)
 ```
+
+### Django
+In the examples directory there's also an example on how to add this to a Django project.
 
 ## Documentation
 

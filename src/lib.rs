@@ -100,7 +100,7 @@ impl PgCronner {
     /// ```
     /// import pgcronner
     ///
-    /// pgcronner = pgcronner.PgCronner()
+    /// pgcronner = pgcronner.PgCronner(db_uri="postgres://postgres:postgres@localhost:5432/postgres", table_name="pgcronner")
     ///```
     ///
     #[new]
@@ -208,7 +208,7 @@ impl PgCronner {
     ///
     /// pgcronner = pgcronner.PgCronner()
     ///
-    /// job = pgcronner.Job("myjob", "0 0 * * *", "SELECT * FROM mytable")
+    /// job = pgcronner.Job("myjob", "0 0 * * *", "SELECT * FROM mytable", ...)
     /// pgcronner.add(job)
     /// ```
     ///

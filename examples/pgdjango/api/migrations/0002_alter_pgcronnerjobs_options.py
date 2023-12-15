@@ -6,12 +6,13 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('api', '0001_initial'),
+        ('cronjobs', '0001_initial'),
     ]
 
     operations = [
         migrations.AlterModelOptions(
             name='pgcronnerjobs',
-            options={'managed': True},
+            options={'verbose_name': 'PgCronner Job', 'verbose_name_plural': 'PgCronner Jobs'},
         ),
     ]
+

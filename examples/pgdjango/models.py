@@ -13,6 +13,8 @@ class PgcronnerJobs(models.Model):
     command = models.TextField()
     schedule = models.CharField(max_length=255)
     source = models.TextField(blank=True, null=True)
+    active = models.BooleanField()
+    last_run = models.DateTimeField(blank=True, null=True)
     created = models.DateTimeField()
 
     class Meta:

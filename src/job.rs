@@ -53,7 +53,14 @@ fn parse_command(command: &str, name: &str) -> String {
 fn format_name(name: &str) -> Result<String, ValidationError> {
     match name.starts_with(PREFIX) {
         true => Ok(name.to_string()),
-        false => Ok(format!("{}{}", PREFIX, name)),
+        false => Ok(format!(
+            "{}{}",
+            PREFIX,
+            name.trim()
+                .replace(" ", "")
+                .to_lowercase()
+                .replace("-", "_")
+        )),
     }
 }
 
