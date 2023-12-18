@@ -1,6 +1,6 @@
 use crate::errors::DbError;
 use crate::job::Job;
-use crate::PREFIX;
+
 use chrono::DateTime;
 use chrono::Utc;
 use log::debug;
@@ -78,7 +78,7 @@ pub fn unschedule_job(client: &mut Client, name: &str) -> Result<(), DbError> {
 pub fn delete_all_jobs(client: &mut Client) -> Result<(), DbError> {
     debug!("Deleting all jobs");
     match client.query_opt(
-        &format!("DELETE FROM cron.job WHERE jobname LIKE 'pgcronner%'"),
+        &"DELETE FROM cron.job WHERE jobname LIKE 'pgcronner%'".to_string(),
         &[],
     ) {
         Ok(_) => {
@@ -115,7 +115,7 @@ pub fn delete_all_stored_procedures(client: &mut Client) -> Result<(), DbError> 
     }
 }
 
-pub fn create_table<'a>(client: &mut Client, table_name: &str) -> Result<String, DbError> {
+pub fn create_table(client: &mut Client, table_name: &str) -> Result<String, DbError> {
     let table_name = match table_name.is_empty() {
         true => DEFAULT_TABLE_NAME.to_string(),
         false => table_name.trim().to_lowercase(),
@@ -135,7 +135,7 @@ pub fn create_table<'a>(client: &mut Client, table_name: &str) -> Result<String,
 
     match client.query(&table, &[]) {
         Ok(_) => Ok(table_name),
-        Err(e) => Err(format!("Could not create table: {}", e.to_string()).into()),
+        Err(e) => Err(format!("Could not create table: {}", e).into()),
     }
 }
 

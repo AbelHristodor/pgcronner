@@ -19,7 +19,7 @@ mod utils;
 
 const PREFIX: &str = "pgcronner__";
 
-fn get_db_connection(uri: &String) -> anyhow::Result<Client> {
+fn get_db_connection(uri: &str) -> anyhow::Result<Client> {
     let client = Client::connect(uri, NoTls)?;
     Ok(client)
 }
@@ -365,7 +365,7 @@ impl PgCronner {
             .query(&format!("SELECT * FROM {}", self.table_name), &[])
             .map_err(|e| DbError::new(format!("Could not fetch cronjobs from table: {}", &e)))?
             .iter()
-            .map_while(|row| match row_to_job(&row, &mut self.client) {
+            .map_while(|row| match row_to_job(row, &mut self.client) {
                 Ok(job) => Some(job),
                 Err(e) => {
                     warn!("Could not convert row to job: {}", e);
@@ -406,7 +406,7 @@ impl PgCronner {
 
         let results = jobs
             .iter()
-            .map(|job| schedule_job(&mut self.client, &job))
+            .map(|job| schedule_job(&mut self.client, job))
             .collect::<Vec<Result<(), DbError>>>();
 
         Ok(results.into_iter().filter_map(|r| r.ok()).count() as u32)

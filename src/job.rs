@@ -57,9 +57,9 @@ fn format_name(name: &str) -> Result<String, ValidationError> {
             "{}{}",
             PREFIX,
             name.trim()
-                .replace(" ", "")
+                .replace(' ', "")
                 .to_lowercase()
-                .replace("-", "_")
+                .replace('-', "_")
         )),
     }
 }
@@ -163,13 +163,11 @@ impl Job {
 
         schedule_is_valid(&self.schedule)?;
 
-        if self.command.contains("CALL") {
-            if self.source.is_empty() {
-                return Err("Source is empty".to_string().into());
-            }
+        if self.command.contains("CALL") && self.source.is_empty() {
+            return Err("Source is empty".to_string().into());
         }
         debug!("Job is valid");
-        return Ok(());
+        Ok(())
     }
 
     pub fn uses_stored_procedure(&self) -> bool {
