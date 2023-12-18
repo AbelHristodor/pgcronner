@@ -1,4 +1,4 @@
-use pyo3::exceptions::PyOSError;
+use pyo3::exceptions::{PyOSError, PyValueError};
 use pyo3::prelude::*;
 use std::fmt;
 
@@ -30,7 +30,7 @@ impl fmt::Display for ValidationError {
 
 impl std::convert::From<ValidationError> for PyErr {
     fn from(error: ValidationError) -> PyErr {
-        PyOSError::new_err(error.message)
+        PyValueError::new_err(error.message)
     }
 }
 
@@ -40,9 +40,9 @@ impl From<String> for ValidationError {
     }
 }
 
-impl Into<String> for ValidationError {
-    fn into(self) -> String {
-        self.message
+impl From<ValidationError> for String {
+    fn from(error: ValidationError) -> String {
+        error.message
     }
 }
 
@@ -90,9 +90,9 @@ impl From<String> for DbError {
     }
 }
 
-impl Into<String> for DbError {
-    fn into(self) -> String {
-        self.message
+impl From<DbError> for String {
+    fn from(error: DbError) -> String {
+        error.message
     }
 }
 
@@ -124,7 +124,7 @@ impl fmt::Display for ConvertError {
 
 impl std::convert::From<ConvertError> for PyErr {
     fn from(error: ConvertError) -> PyErr {
-        PyOSError::new_err(error.message)
+        PyValueError::new_err(error.message)
     }
 }
 
@@ -134,8 +134,8 @@ impl From<String> for ConvertError {
     }
 }
 
-impl Into<String> for ConvertError {
-    fn into(self) -> String {
-        self.message
+impl From<ConvertError> for String {
+    fn from(error: ConvertError) -> String {
+        error.message
     }
 }
