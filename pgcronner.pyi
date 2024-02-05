@@ -39,7 +39,7 @@ class PgCronner(object):
         Get all jobs in the table
 
         :return: List of jobs as dicts
-        :throws: OSError
+        :throws: OSError, ValueError
         """
 
     def one(self, jobname: str) -> Optional[Dict[str, str]]:
@@ -49,7 +49,7 @@ class PgCronner(object):
         :param jobname: job name
         :return: Job instance or None, as dict
 
-        :throws: OsError
+        :throws: OsError, ValueError
         """
 
     def add(self, job: Job) -> bool:
@@ -59,7 +59,7 @@ class PgCronner(object):
         :param job: Job instance
         :return: True if successful
 
-        :throws: OsError
+        :throws: OsError, ValueError
         """
 
     def remove(self, jobname: str) -> bool:
@@ -69,7 +69,7 @@ class PgCronner(object):
         :param jobname: job name
         :return: True if successful
 
-        :throws: OsError
+        :throws: OsError, ValueError
         """
     
     def refresh(self) -> bool:
@@ -78,7 +78,7 @@ class PgCronner(object):
         
         :return: True if successful
 
-        :throws: OsError
+        :throws: OsError, ValueError
         """
 
     def clear(self) -> bool:
@@ -87,7 +87,7 @@ class PgCronner(object):
         
         :return: True if successful
         
-        :throws: OsError
+        :throws: OsError, ValueError
         """
 
 
@@ -97,6 +97,6 @@ class PgCronner(object):
         
         :return: True if successful
 
-        :throws: OsError
+        :throws: OsError, ValueError
         """
 

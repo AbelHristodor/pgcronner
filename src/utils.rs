@@ -31,11 +31,10 @@ pub fn create_stored_procedure(
 ) -> Result<(), DbError> {
     match client.query(
         &format!(
-            "CREATE OR REPLACE FUNCTION {}() RETURNS void AS $$
-            BEGIN
+            "CREATE OR REPLACE PROCEDURE {}() LANGUAGE SQL
+            BEGIN ATOMIC
                 {}
-            END;
-            $$ LANGUAGE plpgsql;",
+            END;",
             name, source
         ),
         &[],
