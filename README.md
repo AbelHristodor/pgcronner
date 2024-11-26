@@ -2,11 +2,11 @@
 
 PGCronner is a simple and fast Python package written in Rust using PyO3 that helps manage PostgreSQL cron jobs. It lets you take control of your cron jobs by allowing you to add, remove, or list them easily. PGCronner uses a custom table to handle all these operations seamlessly.
 
-The tool takes advantage of the PyO3 library—an extension module that enables interoperability between Python and Rust. This allows for an increased performance and memory safety. 
+The tool takes advantage of the PyO3 library—an extension module that enables interoperability between Python and Rust. This allows for an increased performance and memory safety.
 
 ## Installation
 
-First of all, you need to ensure that you have Python installed on your system. If you do not, please follow the official guide to get it up and running. 
+First of all, you need to ensure that you have Python installed on your system. If you do not, please follow the official guide to get it up and running.
 
 The package can be installed via pip:
 
@@ -16,17 +16,17 @@ pip install pgcronner
 
 ## Usage
 
-To use the package, you just need to import it into your Python script. 
+To use the package, you just need to import it into your Python script.
 
 Here is an example of how to create a new pgcron job:
 
 ```python
-from pgcronner import PGCronner, Job
+from pgcronner import PgCronner, Job
 
 PG_URI = "postgresql://postgres:postgres@localhost:5432/postgres" 
-pgcronner = PGCronner(PG_URI)
+pgcronner = PgCronner(PG_URI)
 
-# Create a Job using the provided JobBuilder
+# Create a Job
 # my_job = Job("<name>", "<schedule>", "<command>", "<source>")
 my_job = Job("testjob", "*/5 * * * *", "SELECT 1;", "source")
 
@@ -50,6 +50,7 @@ for job in jobs:
 ```
 
 Retrieve one job:
+
 ```python
 job = pgcronner.one("<jobname>")
 
@@ -63,6 +64,7 @@ pgcronner.remove(job_name)
 ```
 
 ### Django
+
 In the examples directory there's also an example on how to add this to a Django project.
 
 ## Documentation
